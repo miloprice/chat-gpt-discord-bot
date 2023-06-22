@@ -47,7 +47,7 @@ def engine_for_server(server_id):
     if server_id in token_dict and token_dict[server_id] > 0:
         return 'gpt-4-0613'
     else:
-        return 'gpt-3.5-turbo'
+        return 'gpt-3.5-turbo-0613'
 
 def token_pool_for_server(server_id):
     global token_dict
