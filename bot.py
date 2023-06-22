@@ -45,7 +45,7 @@ token_dict = {}
 def engine_for_server(server_id):
     global token_dict
     if server_id in token_dict and token_dict[server_id] > 0:
-        return 'gpt-4'
+        return 'gpt-4-0613'
     else:
         return 'gpt-3.5-turbo'
 
@@ -109,7 +109,7 @@ async def get_api_response(message, message_hist, first_prompt=None):
                 model=engine,
                 messages=messages
             )
-            if engine == 'gpt-4':
+            if engine == 'gpt-4-0613':
                 token_usage = completion.usage.total_tokens
                 token_dict[server_id] = max(0, token_dict[server_id] - token_usage)
                 if token_dict[server_id] == 0:
