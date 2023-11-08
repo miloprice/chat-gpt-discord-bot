@@ -40,47 +40,8 @@ There are some special commands as well:
 !help (!h) - shows this message
 """
 
-token_dict = {}
-
 def engine_for_server(server_id):
-    global token_dict
-    if server_id in token_dict and token_dict[server_id] > 0:
-        return 'gpt-4-0613'
-    else:
-        return 'gpt-3.5-turbo-0613'
-
-def token_pool_for_server(server_id):
-    global token_dict
-    if server_id in token_dict:
-        return token_dict[server_id]
-    else:
-        return 0
-
-def tokens_to_dollars(tokens):
-    dollar_amount = tokens * 0.045 / 1000
-    return format(dollar_amount, '.2f')
-
-def dollars_to_tokens(dollars):
-    return int(dollars / 0.045 * 1000)
-
-def usage(server_id):
-    global token_dict
-    token_pool = token_pool_for_server(server_id)
-    return f"""
-Current engine: `{engine_for_server(server_id)}`
-Remaining GPT-4 tokens: {token_pool} (about ${tokens_to_dollars(token_pool)})
-
-This is a message from me, SmarterAdult - no GPT usage required.
-"""
-
-def paid(server_id, dollars):
-    global token_dict
-    if server_id not in token_dict:
-        token_dict[server_id] = 0
-    token_add = dollars_to_tokens(dollars)
-    token_dict[server_id] += token_add
-    return f"Great! ${dollars} was added to the tip jar.\n\n" + usage(server_id)
-
+    return 'gpt-4-1106-preview'
 
 intents = discord.Intents.default()
 intents.reactions = True
@@ -109,11 +70,6 @@ async def get_api_response(message, message_hist, first_prompt=None):
                 model=engine,
                 messages=messages
             )
-            if engine == 'gpt-4-0613':
-                token_usage = completion.usage.total_tokens
-                token_dict[server_id] = max(0, token_dict[server_id] - token_usage)
-                if token_dict[server_id] == 0:
-                    await message.reply("You're now out of GPT-4 tokens. Switching to GPT-3.5.")
             print(completion)
             response_text = completion.choices[0].message.content
         except openai.error.InvalidRequestError as e:
@@ -132,7 +88,6 @@ async def on_ready():
 async def on_message(message):
     global message_hist_dict
     global prompt_dict
-    global token_dict
 
     # Only interact with messages in the ChatGPT channel
     if message.channel.name != CHAT_CHANNEL:
@@ -151,9 +106,6 @@ async def on_message(message):
 
     if message.channel.id not in prompt_dict:
         prompt_dict[message.channel.id] = None
-
-    if message.channel.id not in token_dict:
-        token_dict[message.channel.id] = 0
 
     if message.clean_content.strip() == '!help':
         await message.reply(help_text())
@@ -175,15 +127,6 @@ async def on_message(message):
 
     if message.clean_content.strip() == '!usage':
         await message.reply(usage(message.channel.id))
-        return
-
-    if message.clean_content.strip().startswith('!paid'):
-        tokens = message.clean_content.strip().split(' ')
-        if len(tokens) != 2 or not tokens[1].replace('$', '').isdigit():
-            await message.reply("Please use the format `!paid $10` or `!paid 10` - whole dollars only!")
-            return
-        dollar_amount = int(tokens[1].replace('$', ''))
-        await message.reply(paid(message.channel.id, dollar_amount))
         return
 
     if message.clean_content.strip() == "!reroll":
