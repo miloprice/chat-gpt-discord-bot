@@ -17,6 +17,7 @@ load_dotenv()
 
 DISCORD_MSG_LIMIT = 2000
 OPENAI_HIST_LIMIT = 30
+IMAGE_TOKEN_LIMIT = 1000
 
 OPENAI_ERRORS = (openai.error.Timeout, openai.error.APIError, openai.error.APIConnectionError, openai.error.InvalidRequestError, openai.error.RateLimitError)
 
@@ -57,7 +58,7 @@ async def flush_messages(response_text, channel):
         await channel.send(response_text[:DISCORD_MSG_LIMIT])
         response_text = response_text[DISCORD_MSG_LIMIT:]
 
-async def get_api_response(message, message_hist, first_prompt=None):
+async def get_api_response(message, message_hist, first_prompt=None, image_urls=None):
     messages = message_hist
     if first_prompt:
         messages = [{"role": "system", "content": first_prompt}] + messages
@@ -65,10 +66,12 @@ async def get_api_response(message, message_hist, first_prompt=None):
     while response_text is None:
         try:
             server_id = message.channel.id
-            engine = engine_for_server(server_id)
+            engine = 'gpt-4-vision-preview' if image_urls else engine_for_server(server_id)
+            max_tokens = IMAGE_TOKEN_LIMIT if image_urls else None
             completion = openai.ChatCompletion.create(
                 model=engine,
-                messages=messages
+                messages=messages,
+                max_tokens=max_tokens
             )
             print(completion)
             response_text = completion.choices[0].message.content
@@ -100,6 +103,9 @@ async def on_message(message):
     if not message.clean_content:
         return
 
+    if message.clean_content.startswith('#') or message.clean_content.startswith('//'):
+        return
+
     if message.channel.id not in message_hist_dict:
         message_hist_dict[message.channel.id] = []
     message_hist = message_hist_dict[message.channel.id]
@@ -129,6 +135,10 @@ async def on_message(message):
         await message.reply(usage(message.channel.id))
         return
 
+    # Extract images (TODO: maybe do this by content-type?)
+    image_urls = [attachment.url for attachment in message.attachments if attachment.width]
+    print(f"image_urls: {image_urls}")
+
     if message.clean_content.strip() == "!reroll":
         message_hist.pop()
     else:
@@ -140,14 +150,20 @@ async def on_message(message):
             print(f"New prompt: <{input_text}>")
             prompt_dict[message.channel.id] = input_text
             await message.add_reaction('🫡')
-        message_hist.append({"role": message_author, "content": input_text})
-        if len(message_hist) > OPENAI_HIST_LIMIT : message_hist.pop(0)
 
+        content = [{"type": "text", "text": input_text}]
+        for image_url in image_urls:
+            content.append({"type": "image_url", "image_url": image_url})
+        message_hist.append({"role": message_author, "content": content})
+
+        if len(message_hist) > OPENAI_HIST_LIMIT : message_hist.pop(0)
         print(f"Input: <{input_text}>")
+
     await message.add_reaction('⏳')
 
+
     try:
-        response_text = await get_api_response(message, message_hist, prompt_dict[message.channel.id])
+        response_text = await get_api_response(message, message_hist, prompt_dict[message.channel.id], image_urls)
         print(f"Output: <{response_text}>")
         message_hist.append({"role": "system", "content": response_text})
         await flush_messages(response_text, message.channel)
