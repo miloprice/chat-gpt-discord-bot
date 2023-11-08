@@ -3,7 +3,7 @@ import os
 import sys
 
 import requests
-# import tempfile
+import tempfile
 
 import re
 
@@ -11,6 +11,7 @@ import discord
 from dotenv import load_dotenv
 
 import openai
+
 load_dotenv()
 
 # Based on https://realpython.com/how-to-make-a-discord-bot-python/
@@ -32,9 +33,10 @@ def help_text():
     return f"""
 How to use this bot
 
-Post in the channel #{CHAT_CHANNEL}. The bot will respond to each message.
+Post in the channel #{CHAT_CHANNEL}. The bot will respond to each message. You may attach one or more images.
 
 There are some special commands as well:
+!draw <prompt> - has the bot generate an image based on the prompt.
 !reprompt - gives the bot a new prompt to follow. Example: `!reprompt You are a 1930s radio announcer who always speaks in hyperbole and loves alliteration.`
 !reroll - has the bot come up with a new answer to the last prompt.
 !restart - resets the chat history for this server.
@@ -80,8 +82,26 @@ async def get_api_response(message, message_hist, first_prompt=None, image_urls=
             messages = message_hist
     return response_text
 
+async def get_image_url(prompt):
+    try:
+        response = openai.Image.create(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        print(response)
+        return response.data[0].url, response.data[0].revised_prompt
+
+    except openai.error.InvalidRequestError as e:
+        await message.reply(str(e))
+
 def is_reprompt(message_text):
     return message_text.strip().startswith("!reprompt") or message_text.strip().startswith("!gaslight")
+
+def is_draw(message_text):
+    return message_text.strip().startswith("!draw")
 
 @client.event
 async def on_ready():
@@ -98,9 +118,6 @@ async def on_message(message):
 
     # Don't respond to self
     if message.author == client.user:
-        return
-
-    if not message.clean_content:
         return
 
     if message.clean_content.startswith('#') or message.clean_content.startswith('//'):
@@ -135,6 +152,23 @@ async def on_message(message):
         await message.reply(usage(message.channel.id))
         return
 
+    if is_draw(message.clean_content):
+        await message.add_reaction('🎨')
+        input_text = message.clean_content.replace('!draw', '').strip()
+        print(f"Drawing: '{input_text}'")
+        message_hist.append({"role": 'user', "content": [{"type": "text", "text": f"Draw {input_text}"}]})
+        image_url, revised_prompt = await get_image_url(input_text)
+        message_hist.append({"role": "system", "content": [{"type": "text", "text": f"<DALL-E 3 generated an image from the prompt: '{revised_prompt}'>"}]})
+
+        image_data = requests.get(image_url).content
+        with tempfile.NamedTemporaryFile(suffix='.png', mode='wb', delete=True) as temp_imagefile:
+            temp_imagefile.write(image_data)
+            temp_imagefile.seek(0)
+            discord_file = discord.File(temp_imagefile.name)
+            await message.reply(file=discord_file)
+        await message.remove_reaction('🎨', client.user)
+        return
+
     # Extract images (TODO: maybe do this by content-type?)
     image_urls = [attachment.url for attachment in message.attachments if attachment.width]
     print(f"image_urls: {image_urls}")
@@ -160,7 +194,6 @@ async def on_message(message):
         print(f"Input: <{input_text}>")
 
     await message.add_reaction('⏳')
-
 
     try:
         response_text = await get_api_response(message, message_hist, prompt_dict[message.channel.id], image_urls)
