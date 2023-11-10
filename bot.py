@@ -157,17 +157,23 @@ async def on_message(message):
         input_text = message.clean_content.replace('!draw', '').strip()
         print(f"Drawing: '{input_text}'")
         message_hist.append({"role": 'user', "content": [{"type": "text", "text": f"Draw {input_text}"}]})
-        image_url, revised_prompt = await get_image_url(input_text)
-        message_hist.append({"role": "system", "content": [{"type": "text", "text": f"<DALL-E 3 generated an image from the prompt: '{revised_prompt}'>"}]})
 
-        image_data = requests.get(image_url).content
-        with tempfile.NamedTemporaryFile(suffix='.png', mode='wb', delete=True) as temp_imagefile:
-            temp_imagefile.write(image_data)
-            temp_imagefile.seek(0)
-            discord_file = discord.File(temp_imagefile.name)
-            await message.reply(file=discord_file)
-        await message.remove_reaction('🎨', client.user)
-        return
+        try:
+            image_url, revised_prompt = await get_image_url(input_text)
+            message_hist.append({"role": "system", "content": [{"type": "text", "text": f"<DALL-E 3 generated an image from the prompt: '{revised_prompt}'>"}]})
+
+            image_data = requests.get(image_url).content
+            with tempfile.NamedTemporaryFile(suffix='.png', mode='wb', delete=True) as temp_imagefile:
+                temp_imagefile.write(image_data)
+                temp_imagefile.seek(0)
+                discord_file = discord.File(temp_imagefile.name)
+                await message.reply(revised_prompt, file=discord_file)
+            await message.remove_reaction('🎨', client.user)
+        except OPENAI_ERRORS as e:
+            print(e)
+            await message.reply(f"Oops, there was an OpenAI error: `{type(e).__name__}: {e}`")
+        finally:
+            return
 
     # Extract images (TODO: maybe do this by content-type?)
     image_urls = [attachment.url for attachment in message.attachments if attachment.width]
